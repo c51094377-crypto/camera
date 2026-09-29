@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>iPad Camera & Monitor WebRTC (4桁コード接続)</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <!-- Firebase SDK (Compat) -->
+    <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.2/firebase-database-compat.js"></script>
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen flex flex-col font-sans select-none">
+
+    <!-- ヘッダー -->
+    <header class="bg-slate-800 border-b border-slate-700 px-4 py-3 flex justify-between items-center shadow-md">
+        <h1 class="text-lg font-bold flex items-center gap-2">
+            <span class="w-3 h-3 rounded-full bg-emerald-500 animate-pulse" id="connection-dot"></span>
+            iPad防犯カメラシステム <span id="role-badge" class="text-xs bg-slate-700 px-2 py-0.5 rounded text-slate-300">未選択</span>
+        </h1>
+        <div id="status-text" class="text-xs text-slate-400">ロールを選択してください</div>
+    </header>
+
+    <!-- メインコンテンツ -->
+    <main class="flex-1 flex flex-col p-4 max-w-4xl mx-auto w-full justify-center">
+
+        <!-- ロール選択画面 -->
+        <div id="view-mode-select" class="space-y-6 text-center">
+            <div class="bg-slate-800 p-6 rounded-2xl border border-slate-700 shadow-xl max-w-md mx-auto">
+                <h2 class="text-xl font-bold mb-4">端末の役割を選択</h2>
+                <p class="text-sm text-slate-400 mb-6">このiPadを「カメラ側」または「モニター・操作側」のどちらとして使用するか選択してください。</p>
+                <div class="grid grid-cols-2 gap-4">
+                    <button onclick="selectRole('camera')" class="bg-blue-600 hover:bg-blue-500 active:bg-blue-700 p-4 rounded-xl font-bold flex flex-col items-center gap-2 transition shadow-lg">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+                        iPad A (カメラ側)
+                    </button>
+                    <button onclick="selectRole('monitor')" class="bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 p-4 rounded-xl font-bold flex flex-col items-center gap-2 transition shadow-lg">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+                        iPad B (モニター側)
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- iPad B (モニター側) 接続コード作成・待機画面 -->
+        <div id="view-monitor-setup" class="hidden space-y-6 text-center max-w-md mx-auto w-full">
+            <div class="bg-slate-800 p-6 rounded-2xl border border-slate-700 shadow-xl">
+                <h2 class="text-xl font-bold mb-2">モニター（操作側）</h2>
+                <p class="text-sm text-slate-400 mb-6">4桁の接続コードを作成し、カメラ側のiPad Aに入力してください。</p>
+                
+                <div id="code-display-area" class="hidden mb-6">
+                    <div class="text-xs text-slate-400 mb-2">接続コード</div>
+                    <div class="text-5xl font-mono tracking-widest text-emerald-400 bg-slate-900 py-4 rounded-xl border border-emerald-500/30 font-bold" id="generated-code">----</div>
+                    <div class="text-xs text-amber-400 mt-2 animate-pulse">カメラ側からの接続を待機中...</div>
+                </div>
+
+                <button id="create-code-btn" onclick="createConnectionCode()" class="w-full bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 py-3 rounded-xl font-bold text-lg shadow-lg transition">
+                    接続コードを作成
+                </button>
+            </div>
+        </div>
+
+        <!-- iPad A (カメラ側) 接続コード入力画面 -->
+        <div id="view-camera-setup" class="hidden space-y-6 text-center max-w-md mx-auto w-full">
+            <div class="bg-slate-800 p-6 rounded-2xl border border-slate-700 shadow-xl">
+                <h2 class="text-xl font-bold mb-2">カメラ側</h2>
+                <p class="text-sm text-slate-400 mb-6">モニター側（iPad B）に表示された4桁の数字を入力してください。</p>
+
+                <div class="flex justify-center gap-3 mb-6">
+                    <input type="text" inputmode="numeric" maxlength="1" class="pin-input w-14 h-16 text-center text-3xl font-mono bg-slate-900 border border-slate-700 rounded-xl focus:border-blue-500 focus:outline-none" oninput="handlePinInput(this, 0)" onkeydown="handlePinKeyDown(event, 0)">
+                    <input type="text" inputmode="numeric" maxlength="1" class="pin-input w-14 h-16 text-center text-3xl font-mono bg-slate-900 border border-slate-700 rounded-xl focus:border-blue-500 focus:outline-none" oninput="handlePinInput(this, 1)" onkeydown="handlePinKeyDown(event, 1)">
+                    <input type="text" inputmode="numeric" maxlength="1" class="pin-input w-14 h-16 text-center text-3xl font-mono bg-slate-900 border border-slate-700 rounded-xl focus:border-blue-500 focus:outline-none" oninput="handlePinInput(this, 2)" onkeydown="handlePinKeyDown(event, 2)">
+                    <input type="text" inputmode="numeric" maxlength="1" class="pin-input w-14 h-16 text-center text-3xl font-mono bg-slate-900 border border-slate-700 rounded-xl focus:border-blue-500 focus:outline-none" oninput="handlePinInput(this, 3)" onkeydown="handlePinKeyDown(event, 3)">
+                </div>
+
+                <button id="connect-btn" onclick="connectWithCode()" disabled class="w-full bg-blue-600 hover:bg-blue-500 active:bg-blue-700 disabled:bg-slate-700 disabled:text-slate-500 py-3 rounded-xl font-bold text-lg shadow-lg transition">
+                    接続
+                </button>
+            </div>
+        </div>
+
+        <!-- 接続成功後のメイン画面 (カメラ側 / モニター側共通コンテナ) -->
+        <div id="view-active-session" class="hidden grid grid-cols-1 md:grid-cols-3 gap-4">
+            <!-- 映像・プレビューエリア -->
+            <div class="md:col-span-2 bg-slate-800 rounded-2xl overflow-hidden border border-slate-700 shadow-xl flex flex-col relative">
+                <div class="bg-slate-800/80 px-4 py-2 border-b border-slate-700 flex justify-between items-center text-xs">
+                    <span id="video-title" class="font-bold text-slate-300">ライブ映像</span>
+                    <span id="motion-status" class="bg-slate-700 px-2 py-0.5 rounded text-slate-400">動体検知: 待機中</span>
+                </div>
+                
+                <div class="relative bg-black aspect-video flex items-center justify-center overflow-hidden">
+                    <!-- カメラ側用ローカルビデオ -->
+                    <video id="local-video" autoplay playsinline muted class="w-full h-full object-cover hidden"></video>
+                    <!-- モニター側用リモートビデオ -->
+                    <video id="remote-video" autoplay playsinline class="w-full h-full object-cover hidden"></video>
+                    <!-- 動体検知用隠しキャンバス -->
+                    <canvas id="motion-canvas" class="hidden"></canvas>
+                    
+                    <div id="video-placeholder" class="text-slate-500 text-sm">接続確立中...</div>
+                </div>
+
+                <!-- コントロールバー（操作側 / カメラ側共通） -->
+                <div class="p-3 bg-slate-800 border-t border-slate-700 flex flex-wrap gap-2 justify-between items-center">
+                    <div class="flex items-center gap-2">
+                        <button id="btn-manual-capture" onclick="triggerManualCapture()" class="bg-indigo-600 hover:bg-indigo-500 px-4 py-2 rounded-xl text-sm font-bold shadow transition flex items-center gap-1.5">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"/></svg>
+                            手動撮影
+                        </button>
+                    </div>
+                    <div class="text-xs text-slate-400 flex items-center gap-2">
+                        <label class="flex items-center gap-1 cursor-pointer">
+                            <input type="checkbox" id="motion-toggle" onchange="toggleMotionDetection(this)" class="rounded bg-slate-900 border-slate-700 text-blue-600 focus:ring-0">
+                            動体検知自動撮影
+                        </label>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 撮影ギャラリー / 通知ログ -->
+            <div class="bg-slate-800 rounded-2xl overflow-hidden border border-slate-700 shadow-xl flex flex-col h-[400px] md:h-auto">
+                <div class="bg-slate-800/80 px-4 py-2 border-b border-slate-700 text-xs font-bold text-slate-300">
+                    撮影ログ・スナップショット
+                </div>
+                <div id="snapshot-gallery" class="flex-1 p-3 overflow-y-auto space-y-3">
+                    <div class="text-center text-slate-500 text-xs py-8">撮影された画像はありません</div>
+                </div>
+            </div>
+        </div>
+
+    </main>
+
+    <!-- Firebase・WebRTCロジック -->
+    <script>
+        // Firebase初期設定 (無料の公開利用可能なテスト用構成、本番では自前のFirebaseプロジェクト設定に書き換えてください)
+        const firebaseConfig = {
+            databaseURL: "https://ipad-webrtc-default-rtdb.firebaseio.com"
+        };
+        
+        // フォールバック（もし専用DBがない場合のエラーハンドリング用）
+        let db;
+        try {
+            if (!firebase.apps.length) {
+                firebase.initializeApp(firebaseConfig);
+            }
+            db = firebase.database();
+        } catch(e) {
+            console.warn("Firebase初期化警告:", e);
+        }
+
+        let currentRole = null; // 'camera' or 'monitor'
+        let currentCode = null;
+        let peerConnection = null;
+        let localStream = null;
+        
+        // STUNサーバー設定
+        const rtcConfig = {
+            iceServers: [
+                { urls: 'stun:stun.l.google.com:19302' },
+                { urls: 'stun:stun1.l.google.com:19302' }
+            ]
+        };
+
+        function selectRole(role) {
+            currentRole = role;
+            document.getElementById('view-mode-select').classList.add('hidden');
+            document.getElementById('role-badge').textContent = role === 'camera' ? 'iPad A (カメラ側)' : 'iPad B (モニター側)';
+            
+            if (role === 'monitor') {
+                document.getElementById('view-monitor-setup').classList.remove('hidden');
+                document.getElementById('status-text').textContent = '接続コードを作成してください';
+            } else {
+                document.getElementById('view-camera-setup').classList.remove('hidden');
+                document.getElementById('status-text').textContent = '4桁の接続コードを入力してください';
+                // 最初の入力欄にフォーカス
+                setTimeout(() => document.querySelector('.pin-input').focus(), 100);
+            }
+        }
+
+        // --- 4桁コード入力のUI操作 (カメラ側) ---
+        function handlePinInput(input, index) {
+            const val = input.value.replace(/[^0-9]/g, '');
+            input.value = val;
+            
+            const inputs = document.querySelectorAll('.pin-input');
+            if (val && index < 3) {
+                inputs[index + 1].focus();
+            }
+            
+            checkPinComplete();
+        }
+
+        function handlePinKeyDown(event, index) {
+            const inputs = document.querySelectorAll('.pin-input');
+            if (event.key === 'Backspace' && !inputs[index].value && index > 0) {
+                inputs[index - 1].focus();
+            }
+        }
+
+        function checkPinComplete() {
+            const inputs = document.querySelectorAll('.pin-input');
+            let code = '';
+            inputs.forEach(i => code += i.value);
+            
+            const btn = document.getElementById('connect-btn');
+            if (code.length === 4) {
+                btn.removeAttribute('disabled');
+                currentCode = code;
+            } else {
+                btn.setAttribute('disabled', 'true');
+            }
+        }
+
+        // --- モニター側: 接続コード作成 ---
+        async function createConnectionCode() {
+            if (!db) {
+                alert("Firebase接続が初期化されていません。ネットワーク接続を確認してください。");
+                return;
+            }
+
+            // 4桁のランダムな数字生成 (0000〜9999)
+            currentCode = String(Math.floor(Math.random() * 10000)).padStart(4, '0');
+            document.getElementById('generated-code').textContent = currentCode;
+            document.getElementById('create-code-btn').classList.add('hidden');
+            document.getElementById('code-display-area').classList.remove('hidden');
+            document.getElementById('status-text').textContent = `コード [${currentCode}] で待機中...`;
+
+            // シグナリング用ルーム作成
+            const roomRef = db.ref('rooms/' + currentCode);
+            await roomRef.set({ status: 'waiting', created: Date.now() });
+
+            startMonitorSignaling(roomRef);
+        }
+
+        // --- カメラ側: コードで接続 ---
+        async function connectWithCode() {
+            if (!db) {
+                alert("Firebase接続が初期化されていません。");
+                return;
+            }
+
+            const btn = document.getElementById('connect-btn');
+            btn.textContent = '接続中...';
+            btn.setAttribute('disabled', 'true');
+            document.getElementById('status-text').textContent = 'ルームを確認しています...';
+
+            const roomRef = db.ref('rooms/' + currentCode);
+            const snapshot = await roomRef.once('value');
+            
+            if (!snapshot.exists()) {
+                alert('無効な接続コードです。コードを再確認してください。');
+                btn.textContent = '接続';
+                btn.removeAttribute('disabled');
+                document.getElementById('status-text').textContent = '接続エラー';
+                return;
+            }
+
+            // カメラ映像の取得開始
+            try {
+                localStream = await navigator.mediaDevices.getUserMedia({ 
+                    video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }, 
+                    audio: true 
+                });
+                
+                document.getElementById('view-camera-setup').classList.add('hidden');
+                document.getElementById('view-active-session').classList.remove('hidden');
+                
+                const localVideo = document.getElementById('local-video');
+                localVideo.srcObject = localStream;
+                localVideo.classList.remove('hidden');
+                document.getElementById('video-placeholder').classList.add('hidden');
+                document.getElementById('video-title').textContent = 'カメラ映像 (iPad A)';
+                document.getElementById('connection-dot').classList.remove('bg-emerald-500');
+                document.getElementById('connection-dot').classList.add('bg-blue-500');
+                document.getElementById('status-text').textContent = '接続確立中 (WebRTC)';
+
+                startCameraSignaling(roomRef);
+
+            } catch (err) {
+                console.error("カメラアクセスエラー:", err);
+                alert('カメラ・マイクのアクセス許可が必要です。ブラウザの設定を確認してください。');
+                btn.textContent = '接続';
+                btn.removeAttribute('disabled');
+            }
+        }
+
+        // --- WebRTC シグナリング (カメラ側) ---
+        function startCameraSignaling(roomRef) {
+            peerConnection = new RTCPeerConnection(rtcConfig);
+
+            // ローカルストリームをPeerに追加
+            localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+
+            // ICE候補の送信
+            peerConnection.onicecandidate = event => {
+                if (event.candidate) {
+                    roomRef.child('cameraCandidates').push(event.candidate.toJSON());
+                }
+            };
+
+            // オファー作成
+            peerConnection.createOffer().then(offer => {
+                return peerConnection.setLocalDescription(offer);
+            }).then(() => {
+                roomRef.child('offer').set({
+                    type: peerConnection.localDescription.type,
+                    sdp: peerConnection.localDescription.sdp
+                });
+            });
+
+            // モニター側からのアンサー受信
+            roomRef.child('answer').on('value', snapshot => {
+                const answer = snapshot.val();
+                if (answer && !peerConnection.currentRemoteDescription) {
+                    peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
+                    document.getElementById('status-text').textContent = '接続成功 (カメラ稼働中)';
+                    document.getElementById('connection-dot').classList.replace('bg-blue-500', 'bg-emerald-500');
+                }
+            });
+
+            // モニター側のICE候補受信
+            roomRef.child('monitorCandidates').on('child_added', snapshot => {
+                const candidate = snapshot.val();
+                if (candidate && peerConnection) {
+                    peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+                }
+            });
+
+            initMotionDetection();
+        }
+
+        // --- WebRTC シグナリング (モニター側) ---
+        function startMonitorSignaling(roomRef) {
+            roomRef.child('offer').on('value', async snapshot => {
+                const offer = snapshot.val();
+                if (offer && !peerConnection) {
+                    document.getElementById('status-text').textContent = 'カメラ側を発見しました。接続中...';
+                    
+                    peerConnection = new RTCPeerConnection(rtcConfig);
+
+                    // リモートストリームの受信処理
+                    peerConnection.ontrack = event => {
+                        document.getElementById('view-monitor-setup').classList.add('hidden');
+                        document.getElementById('view-active-session').classList.remove('hidden');
+                        
+                        const remoteVideo = document.getElementById('remote-video');
+                        remoteVideo.srcObject = event.streams[0];
+                        remoteVideo.classList.remove('hidden');
+                        document.getElementById('video-placeholder').classList.add('hidden');
+                        document.getElementById('video-title').textContent = 'モニター映像 (iPad B)';
+                        document.getElementById('connection-dot').classList.replace('bg-emerald-500', 'bg-emerald-400');
+                        document.getElementById('status-text').textContent = '接続成功 (リアルタイムモニター中)';
+                    };
+
+                    // ICE候補の送信
+                    peerConnection.onicecandidate = event => {
+                        if (event.candidate) {
+                            roomRef.child('monitorCandidates').push(event.candidate.toJSON());
+                        }
+                    };
+
+                    await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
+                    const answer = await peerConnection.createAnswer();
+                    await peerConnection.setLocalDescription(answer);
+
+                    roomRef.child('answer').set({
+                        type: answer.type,
+                        sdp: answer.sdp
+                    });
+
+                    // カメラ側のICE候補受信
+                    roomRef.child('cameraCandidates').on('child_added', snapshot => {
+                        const candidate = snapshot.val();
+                        if (candidate && peerConnection) {
+                            peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+                        }
+                    });
+                }
+            });
+        }
+
+        // --- 動体検知・自動撮影機能 (カメラ側) ---
+        let motionInterval = null;
+        let lastImageData = null;
+
+        function toggleMotionDetection(checkbox) {
+            const statusEl = document.getElementById('motion-status');
+            if (checkbox.checked) {
+                statusEl.textContent = '動体検知: 有効';
+                statusEl.classList.replace('bg-slate-700', 'bg-emerald-900/60');
+                statusEl.classList.replace('text-slate-400', 'text-emerald-300');
+                startMotionDetectionLoop();
+            } else {
+                statusEl.textContent = '動体検知: 停止中';
+                statusEl.classList.replace('bg-emerald-900/60', 'bg-slate-700');
+                statusEl.classList.replace('text-emerald-300', 'text-slate-400');
+                stopMotionDetectionLoop();
+            }
+        }
+
+        function initMotionDetection() {
+            // デフォルトで動体検知を有効化
+            const toggle = document.getElementById('motion-toggle');
+            toggle.checked = true;
+            toggleMotionDetection(toggle);
+        }
+
+        function startMotionDetectionLoop() {
+            const video = document.getElementById('local-video');
+            const canvas = document.getElementById('motion-canvas');
+            const ctx = canvas.getContext('2d');
+
+            if (motionInterval) clearInterval(motionInterval);
+
+            motionInterval = setInterval(() => {
+                if (!video.videoWidth || !video.videoHeight) return;
+                
+                canvas.width = 160;
+                canvas.height = 90;
+                ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+                
+                const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                const pixels = imgData.data;
+
+                if (lastImageData) {
+                    let diffCount = 0;
+                    for (let i = 0; i < pixels.length; i += 16) {
+                        const rDiff = Math.abs(pixels[i] - lastImageData[i]);
+                        const gDiff = Math.abs(pixels[i+1] - lastImageData[i+1]);
+                        const bDiff = Math.abs(pixels[i+2] - lastImageData[i+2]);
+                        if ((rDiff + gDiff + bDiff) / 3 > 35) {
+                            diffCount++;
+                        }
+                    }
+
+                    // 変化量が一定以上なら自動撮影
+                    if (diffCount > 120) {
+                        triggerCapture('動体検知自動撮影');
+                    }
+                }
+                lastImageData = pixels;
+            }, 600);
+        }
+
+        function stopMotionDetectionLoop() {
+            if (motionInterval) {
+                clearInterval(motionInterval);
+                motionInterval = null;
+            }
+        }
+
+        function triggerManualCapture() {
+            triggerCapture('手動撮影');
+        }
+
+        function triggerCapture(reason) {
+            const video = currentRole === 'camera' ? document.getElementById('local-video') : document.getElementById('remote-video');
+            if (!video || !video.videoWidth) return;
+
+            const canvas = document.createElement('canvas');
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+            const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+            addSnapshotToGallery(dataUrl, reason);
+        }
+
+        function addSnapshotToGallery(dataUrl, reason) {
+            const gallery = document.getElementById('snapshot-gallery');
+            // 初期プレビューテキストの削除
+            if (gallery.querySelector('.text-center')) {
+                gallery.innerHTML = '';
+            }
+
+            const timeStr = new Date().toLocaleTimeString();
+            const item = document.createElement('div');
+            item.className = 'bg-slate-900 rounded-xl overflow-hidden border border-slate-700 shadow flex flex-col';
+            item.innerHTML = `
+                <img src="${dataUrl}" class="w-full h-32 object-cover">
+                <div class="p-2 flex justify-between items-center text-xs">
+                    <span class="font-bold text-amber-400">${reason}</span>
+                    <span class="text-slate-400">${timeStr}</span>
+                </div>
+            `;
+            gallery.prepend(item);
+        }
+    </script>
+</body>
+</html>
